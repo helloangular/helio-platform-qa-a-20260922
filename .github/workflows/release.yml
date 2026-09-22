@@ -1,0 +1,49 @@
+{
+  "name" : "Platform release",
+  "run-name" : "${{ inputs.correlation-id }}",
+  "on" : {
+    "workflow_dispatch" : {
+      "inputs" : {
+        "correlation-id" : {
+          "type" : "string",
+          "default" : ""
+        },
+        "targets" : {
+          "type" : "string",
+          "default" : ""
+        },
+        "purpose" : {
+          "type" : "choice",
+          "options" : [ "forward", "redeploy", "recover" ],
+          "default" : "forward"
+        },
+        "source_run_id" : {
+          "type" : "string",
+          "default" : ""
+        }
+      }
+    }
+  },
+  "permissions" : {
+    "contents" : "write",
+    "actions" : "read",
+    "deployments" : "write",
+    "id-token" : "write"
+  },
+  "jobs" : {
+    "platform" : {
+      "uses" : "helloangular/helio-platform-qa-a-20260922/.github/workflows/platform.yml@66c753efeb65c20260eddf23f24af84ffb4fdf65",
+      "with" : {
+        "application_id" : "b6c20b3f-b790-4146-b994-d2e7b97e18e1",
+        "purpose" : "${{ inputs.purpose || 'forward' }}",
+        "targets" : "${{ inputs.targets }}",
+        "source_run_id" : "${{ inputs.source_run_id }}"
+      },
+      "secrets" : {
+        "platform_read_token" : "${{ secrets.HELIO_PLATFORM_READ_TOKEN }}",
+        "configuration_read_token" : "${{ secrets.HELIO_CONFIGURATION_READ_TOKEN }}",
+        "protection_read_token" : "${{ secrets.HELIO_PROTECTION_READ_TOKEN }}"
+      }
+    }
+  }
+}
