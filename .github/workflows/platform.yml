@@ -1,0 +1,528 @@
+{
+  "name" : "Helio central platform v1",
+  "on" : {
+    "workflow_call" : {
+      "inputs" : {
+        "application_id" : {
+          "required" : true,
+          "type" : "string"
+        },
+        "purpose" : {
+          "type" : "string",
+          "default" : "forward"
+        },
+        "targets" : {
+          "type" : "string",
+          "default" : ""
+        },
+        "source_run_id" : {
+          "type" : "string",
+          "default" : ""
+        }
+      },
+      "secrets" : {
+        "platform_read_token" : {
+          "required" : true
+        },
+        "configuration_read_token" : {
+          "required" : true
+        },
+        "protection_read_token" : {
+          "required" : true
+        }
+      }
+    }
+  },
+  "permissions" : {
+    "contents" : "read",
+    "actions" : "read",
+    "deployments" : "read",
+    "id-token" : "write"
+  },
+  "env" : {
+    "GITHUB_TOKEN" : "${{ github.token }}",
+    "HELIO_CONFIGURATION_TOKEN" : "${{ secrets.configuration_read_token }}",
+    "HELIO_PROTECTION_TOKEN" : "${{ secrets.protection_read_token }}",
+    "HELIO_APPLICATION" : "${{ inputs.application_id }}",
+    "HELIO_PURPOSE" : "${{ inputs.purpose }}",
+    "HELIO_TARGETS" : "${{ inputs.targets }}",
+    "HELIO_SOURCE_RUN" : "${{ inputs.source_run_id }}",
+    "HELIO_SOURCE_DIR" : "source"
+  },
+  "jobs" : {
+    "plan" : {
+      "runs-on" : "ubuntu-latest",
+      "outputs" : {
+        "plan_digest" : "${{ steps.plan.outputs.plan_digest }}",
+        "purpose" : "${{ steps.plan.outputs.purpose }}",
+        "qa_count" : "${{ steps.plan.outputs.qa_count }}",
+        "qa_matrix" : "${{ steps.plan.outputs.qa_matrix }}",
+        "preprod_count" : "${{ steps.plan.outputs.preprod_count }}",
+        "preprod_matrix" : "${{ steps.plan.outputs.preprod_matrix }}",
+        "production_count" : "${{ steps.plan.outputs.production_count }}",
+        "production_matrix" : "${{ steps.plan.outputs.production_matrix }}"
+      },
+      "steps" : [ {
+        "id" : "runtime",
+        "uses" : "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+        "with" : {
+          "repository" : "helloangular/helio-platform-qa-a-20260922",
+          "ref" : "4dd66d2e3dd42d0902d10c8e1ded52797dd826fd",
+          "path" : ".helio-runtime",
+          "token" : "${{ secrets.platform_read_token }}",
+          "persist-credentials" : false
+        }
+      }, {
+        "id" : "init",
+        "run" : "node .helio-runtime/runtime.cjs init"
+      }, {
+        "id" : "probe",
+        "run" : "node .helio-runtime/runtime.cjs probe"
+      }, {
+        "id" : "load_plan",
+        "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "with" : {
+          "artifact-ids" : "${{ steps.probe.outputs.plan_id }}",
+          "run-id" : "${{ github.run_id }}",
+          "github-token" : "${{ github.token }}",
+          "path" : "${{ env.HELIO_STATE_DIR }}"
+        },
+        "if" : "${{ steps.probe.outputs.plan_id != '' }}"
+      }, {
+        "id" : "plan",
+        "run" : "node .helio-runtime/runtime.cjs plan"
+      }, {
+        "id" : "retain_plan",
+        "uses" : "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+        "with" : {
+          "name" : "helio-platform-plan",
+          "path" : "${{ env.HELIO_STATE_DIR }}/plan.json",
+          "retention-days" : 90,
+          "if-no-files-found" : "error",
+          "overwrite" : false
+        },
+        "if" : "${{ steps.probe.outputs.plan_id == '' }}"
+      } ]
+    },
+    "build" : {
+      "runs-on" : "ubuntu-latest",
+      "needs" : [ "plan" ],
+      "steps" : [ {
+        "id" : "runtime",
+        "uses" : "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+        "with" : {
+          "repository" : "helloangular/helio-platform-qa-a-20260922",
+          "ref" : "4dd66d2e3dd42d0902d10c8e1ded52797dd826fd",
+          "path" : ".helio-runtime",
+          "token" : "${{ secrets.platform_read_token }}",
+          "persist-credentials" : false
+        }
+      }, {
+        "id" : "init",
+        "run" : "node .helio-runtime/runtime.cjs init"
+      }, {
+        "id" : "source",
+        "uses" : "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+        "with" : {
+          "ref" : "${{ github.sha }}",
+          "path" : "source",
+          "persist-credentials" : false
+        }
+      }, {
+        "id" : "probe",
+        "run" : "node .helio-runtime/runtime.cjs probe-build"
+      }, {
+        "id" : "load_plan",
+        "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "with" : {
+          "artifact-ids" : "${{ steps.probe.outputs.plan_id }}",
+          "run-id" : "${{ github.run_id }}",
+          "github-token" : "${{ github.token }}",
+          "path" : "${{ env.HELIO_STATE_DIR }}"
+        }
+      }, {
+        "id" : "load_build",
+        "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "with" : {
+          "artifact-ids" : "${{ steps.probe.outputs.build_id }}",
+          "run-id" : "${{ github.run_id }}",
+          "github-token" : "${{ github.token }}",
+          "path" : "${{ env.HELIO_STATE_DIR }}"
+        },
+        "if" : "${{ steps.probe.outputs.build_id != '' }}"
+      }, {
+        "id" : "source_probe",
+        "run" : "node .helio-runtime/runtime.cjs source-probe",
+        "if" : "${{ needs.plan.outputs.purpose != 'forward' }}"
+      }, {
+        "id" : "source_plan",
+        "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "with" : {
+          "artifact-ids" : "${{ steps.source_probe.outputs.plan_id }}",
+          "run-id" : "${{ steps.source_probe.outputs.run_id }}",
+          "github-token" : "${{ github.token }}",
+          "path" : "${{ env.HELIO_STATE_DIR }}/source"
+        },
+        "if" : "${{ needs.plan.outputs.purpose != 'forward' }}"
+      }, {
+        "id" : "source_build",
+        "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "with" : {
+          "artifact-ids" : "${{ steps.source_probe.outputs.build_id }}",
+          "run-id" : "${{ steps.source_probe.outputs.run_id }}",
+          "github-token" : "${{ github.token }}",
+          "path" : "${{ env.HELIO_STATE_DIR }}/source"
+        },
+        "if" : "${{ needs.plan.outputs.purpose != 'forward' }}"
+      }, {
+        "id" : "source_evidence",
+        "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "with" : {
+          "artifact-ids" : "${{ steps.source_probe.outputs.evidence_id }}",
+          "run-id" : "${{ steps.source_probe.outputs.run_id }}",
+          "github-token" : "${{ github.token }}",
+          "path" : "${{ env.HELIO_STATE_DIR }}/source"
+        },
+        "if" : "${{ needs.plan.outputs.purpose != 'forward' }}"
+      }, {
+        "id" : "build",
+        "run" : "node .helio-runtime/runtime.cjs build"
+      }, {
+        "id" : "retain_build",
+        "uses" : "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+        "with" : {
+          "name" : "helio-platform-build",
+          "path" : "${{ env.HELIO_STATE_DIR }}/build.json",
+          "retention-days" : 90,
+          "if-no-files-found" : "error",
+          "overwrite" : false
+        },
+        "if" : "${{ steps.probe.outputs.build_id == '' }}"
+      } ]
+    },
+    "qa" : {
+      "needs" : [ "plan", "build" ],
+      "permissions" : {
+        "contents" : "write",
+        "actions" : "read",
+        "deployments" : "write",
+        "id-token" : "write"
+      },
+      "concurrency" : {
+        "group" : "${{ format('helio-target-{0}', matrix.target_key) }}",
+        "cancel-in-progress" : false
+      },
+      "if" : "${{ !cancelled() && needs.plan.result == 'success' && needs.build.result == 'success' && needs.plan.outputs.qa_count != '0' }}",
+      "name" : "${{ format('helio-target:{0}', matrix.id) }}",
+      "steps" : [ {
+        "id" : "runtime",
+        "uses" : "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+        "with" : {
+          "repository" : "helloangular/helio-platform-qa-a-20260922",
+          "ref" : "4dd66d2e3dd42d0902d10c8e1ded52797dd826fd",
+          "path" : ".helio-runtime",
+          "token" : "${{ secrets.platform_read_token }}",
+          "persist-credentials" : false
+        }
+      }, {
+        "id" : "init",
+        "run" : "node .helio-runtime/runtime.cjs init"
+      }, {
+        "id" : "source",
+        "uses" : "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+        "with" : {
+          "ref" : "${{ github.sha }}",
+          "path" : "source",
+          "persist-credentials" : false
+        }
+      }, {
+        "id" : "probe",
+        "run" : "node .helio-runtime/runtime.cjs probe-deploy"
+      }, {
+        "id" : "load_plan",
+        "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "with" : {
+          "artifact-ids" : "${{ steps.probe.outputs.plan_id }}",
+          "run-id" : "${{ github.run_id }}",
+          "github-token" : "${{ github.token }}",
+          "path" : "${{ env.HELIO_STATE_DIR }}"
+        }
+      }, {
+        "id" : "load_build",
+        "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "with" : {
+          "artifact-ids" : "${{ steps.probe.outputs.build_id }}",
+          "run-id" : "${{ github.run_id }}",
+          "github-token" : "${{ github.token }}",
+          "path" : "${{ env.HELIO_STATE_DIR }}"
+        }
+      }, {
+        "id" : "load_previous_intent",
+        "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "with" : {
+          "artifact-ids" : "${{ steps.probe.outputs.prior_intent_id }}",
+          "run-id" : "${{ github.run_id }}",
+          "github-token" : "${{ github.token }}",
+          "path" : "${{ env.HELIO_STATE_DIR }}/previous"
+        },
+        "if" : "${{ steps.probe.outputs.prior_intent_id != '' }}"
+      }, {
+        "id" : "prepare",
+        "run" : "node .helio-runtime/runtime.cjs prepare"
+      }, {
+        "id" : "retain_intent",
+        "uses" : "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+        "with" : {
+          "name" : "${{ format('helio-platform-intent-{0}-{1}', matrix.id, github.run_attempt) }}",
+          "path" : "${{ env.HELIO_STATE_DIR }}/intent.json",
+          "retention-days" : 90,
+          "if-no-files-found" : "error",
+          "overwrite" : false
+        }
+      }, {
+        "id" : "deploy",
+        "run" : "node .helio-runtime/runtime.cjs deploy"
+      }, {
+        "id" : "evidence",
+        "uses" : "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+        "with" : {
+          "name" : "${{ format('helio-platform-evidence-{0}-{1}', matrix.id, github.run_attempt) }}",
+          "path" : "${{ env.HELIO_STATE_DIR }}/evidence/${{ matrix.id }}/evidence.json",
+          "retention-days" : 90,
+          "if-no-files-found" : "error",
+          "overwrite" : false
+        },
+        "if" : "${{ always() && steps.prepare.outcome == 'success' }}"
+      }, {
+        "id" : "unlock",
+        "run" : "node .helio-runtime/runtime.cjs unlock"
+      } ],
+      "env" : {
+        "HELIO_TARGET_ID" : "${{ matrix.id }}"
+      },
+      "strategy" : {
+        "fail-fast" : false,
+        "max-parallel" : 20,
+        "matrix" : "${{ fromJSON(needs.plan.outputs.qa_matrix) }}"
+      },
+      "environment" : "${{ matrix.name }}",
+      "runs-on" : "${{ matrix.runner }}"
+    },
+    "preprod" : {
+      "needs" : [ "plan", "build", "qa" ],
+      "permissions" : {
+        "contents" : "write",
+        "actions" : "read",
+        "deployments" : "write",
+        "id-token" : "write"
+      },
+      "concurrency" : {
+        "group" : "${{ format('helio-target-{0}', matrix.target_key) }}",
+        "cancel-in-progress" : false
+      },
+      "if" : "${{ !cancelled() && needs.plan.result == 'success' && needs.build.result == 'success' && needs.plan.outputs.preprod_count != '0' && (needs.qa.result == 'success' || (needs.qa.result == 'skipped' && needs.plan.outputs.qa_count == '0')) }}",
+      "name" : "${{ format('helio-target:{0}', matrix.id) }}",
+      "steps" : [ {
+        "id" : "runtime",
+        "uses" : "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+        "with" : {
+          "repository" : "helloangular/helio-platform-qa-a-20260922",
+          "ref" : "4dd66d2e3dd42d0902d10c8e1ded52797dd826fd",
+          "path" : ".helio-runtime",
+          "token" : "${{ secrets.platform_read_token }}",
+          "persist-credentials" : false
+        }
+      }, {
+        "id" : "init",
+        "run" : "node .helio-runtime/runtime.cjs init"
+      }, {
+        "id" : "source",
+        "uses" : "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+        "with" : {
+          "ref" : "${{ github.sha }}",
+          "path" : "source",
+          "persist-credentials" : false
+        }
+      }, {
+        "id" : "probe",
+        "run" : "node .helio-runtime/runtime.cjs probe-deploy"
+      }, {
+        "id" : "load_plan",
+        "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "with" : {
+          "artifact-ids" : "${{ steps.probe.outputs.plan_id }}",
+          "run-id" : "${{ github.run_id }}",
+          "github-token" : "${{ github.token }}",
+          "path" : "${{ env.HELIO_STATE_DIR }}"
+        }
+      }, {
+        "id" : "load_build",
+        "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "with" : {
+          "artifact-ids" : "${{ steps.probe.outputs.build_id }}",
+          "run-id" : "${{ github.run_id }}",
+          "github-token" : "${{ github.token }}",
+          "path" : "${{ env.HELIO_STATE_DIR }}"
+        }
+      }, {
+        "id" : "load_previous_intent",
+        "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "with" : {
+          "artifact-ids" : "${{ steps.probe.outputs.prior_intent_id }}",
+          "run-id" : "${{ github.run_id }}",
+          "github-token" : "${{ github.token }}",
+          "path" : "${{ env.HELIO_STATE_DIR }}/previous"
+        },
+        "if" : "${{ steps.probe.outputs.prior_intent_id != '' }}"
+      }, {
+        "id" : "prepare",
+        "run" : "node .helio-runtime/runtime.cjs prepare"
+      }, {
+        "id" : "retain_intent",
+        "uses" : "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+        "with" : {
+          "name" : "${{ format('helio-platform-intent-{0}-{1}', matrix.id, github.run_attempt) }}",
+          "path" : "${{ env.HELIO_STATE_DIR }}/intent.json",
+          "retention-days" : 90,
+          "if-no-files-found" : "error",
+          "overwrite" : false
+        }
+      }, {
+        "id" : "deploy",
+        "run" : "node .helio-runtime/runtime.cjs deploy"
+      }, {
+        "id" : "evidence",
+        "uses" : "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+        "with" : {
+          "name" : "${{ format('helio-platform-evidence-{0}-{1}', matrix.id, github.run_attempt) }}",
+          "path" : "${{ env.HELIO_STATE_DIR }}/evidence/${{ matrix.id }}/evidence.json",
+          "retention-days" : 90,
+          "if-no-files-found" : "error",
+          "overwrite" : false
+        },
+        "if" : "${{ always() && steps.prepare.outcome == 'success' }}"
+      }, {
+        "id" : "unlock",
+        "run" : "node .helio-runtime/runtime.cjs unlock"
+      } ],
+      "env" : {
+        "HELIO_TARGET_ID" : "${{ matrix.id }}"
+      },
+      "strategy" : {
+        "fail-fast" : false,
+        "max-parallel" : 20,
+        "matrix" : "${{ fromJSON(needs.plan.outputs.preprod_matrix) }}"
+      },
+      "environment" : "${{ matrix.name }}",
+      "runs-on" : "${{ matrix.runner }}"
+    },
+    "production" : {
+      "needs" : [ "plan", "build", "qa", "preprod" ],
+      "permissions" : {
+        "contents" : "write",
+        "actions" : "read",
+        "deployments" : "write",
+        "id-token" : "write"
+      },
+      "concurrency" : {
+        "group" : "${{ format('helio-target-{0}', matrix.target_key) }}",
+        "cancel-in-progress" : false
+      },
+      "if" : "${{ !cancelled() && needs.plan.result == 'success' && needs.build.result == 'success' && needs.plan.outputs.production_count != '0' && (needs.qa.result == 'success' || (needs.qa.result == 'skipped' && needs.plan.outputs.qa_count == '0')) && (needs.preprod.result == 'success' || (needs.preprod.result == 'skipped' && needs.plan.outputs.preprod_count == '0')) }}",
+      "name" : "${{ format('helio-target:{0}', matrix.id) }}",
+      "steps" : [ {
+        "id" : "runtime",
+        "uses" : "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+        "with" : {
+          "repository" : "helloangular/helio-platform-qa-a-20260922",
+          "ref" : "4dd66d2e3dd42d0902d10c8e1ded52797dd826fd",
+          "path" : ".helio-runtime",
+          "token" : "${{ secrets.platform_read_token }}",
+          "persist-credentials" : false
+        }
+      }, {
+        "id" : "init",
+        "run" : "node .helio-runtime/runtime.cjs init"
+      }, {
+        "id" : "source",
+        "uses" : "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+        "with" : {
+          "ref" : "${{ github.sha }}",
+          "path" : "source",
+          "persist-credentials" : false
+        }
+      }, {
+        "id" : "probe",
+        "run" : "node .helio-runtime/runtime.cjs probe-deploy"
+      }, {
+        "id" : "load_plan",
+        "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "with" : {
+          "artifact-ids" : "${{ steps.probe.outputs.plan_id }}",
+          "run-id" : "${{ github.run_id }}",
+          "github-token" : "${{ github.token }}",
+          "path" : "${{ env.HELIO_STATE_DIR }}"
+        }
+      }, {
+        "id" : "load_build",
+        "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "with" : {
+          "artifact-ids" : "${{ steps.probe.outputs.build_id }}",
+          "run-id" : "${{ github.run_id }}",
+          "github-token" : "${{ github.token }}",
+          "path" : "${{ env.HELIO_STATE_DIR }}"
+        }
+      }, {
+        "id" : "load_previous_intent",
+        "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "with" : {
+          "artifact-ids" : "${{ steps.probe.outputs.prior_intent_id }}",
+          "run-id" : "${{ github.run_id }}",
+          "github-token" : "${{ github.token }}",
+          "path" : "${{ env.HELIO_STATE_DIR }}/previous"
+        },
+        "if" : "${{ steps.probe.outputs.prior_intent_id != '' }}"
+      }, {
+        "id" : "prepare",
+        "run" : "node .helio-runtime/runtime.cjs prepare"
+      }, {
+        "id" : "retain_intent",
+        "uses" : "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+        "with" : {
+          "name" : "${{ format('helio-platform-intent-{0}-{1}', matrix.id, github.run_attempt) }}",
+          "path" : "${{ env.HELIO_STATE_DIR }}/intent.json",
+          "retention-days" : 90,
+          "if-no-files-found" : "error",
+          "overwrite" : false
+        }
+      }, {
+        "id" : "deploy",
+        "run" : "node .helio-runtime/runtime.cjs deploy"
+      }, {
+        "id" : "evidence",
+        "uses" : "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+        "with" : {
+          "name" : "${{ format('helio-platform-evidence-{0}-{1}', matrix.id, github.run_attempt) }}",
+          "path" : "${{ env.HELIO_STATE_DIR }}/evidence/${{ matrix.id }}/evidence.json",
+          "retention-days" : 90,
+          "if-no-files-found" : "error",
+          "overwrite" : false
+        },
+        "if" : "${{ always() && steps.prepare.outcome == 'success' }}"
+      }, {
+        "id" : "unlock",
+        "run" : "node .helio-runtime/runtime.cjs unlock"
+      } ],
+      "env" : {
+        "HELIO_TARGET_ID" : "${{ matrix.id }}"
+      },
+      "strategy" : {
+        "fail-fast" : false,
+        "max-parallel" : 20,
+        "matrix" : "${{ fromJSON(needs.plan.outputs.production_matrix) }}"
+      },
+      "environment" : "${{ matrix.name }}",
+      "runs-on" : "${{ matrix.runner }}"
+    }
+  }
+}
