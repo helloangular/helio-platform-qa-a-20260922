@@ -128,7 +128,30 @@ function validateSource(source,plan,run,evidence,roots){
  if(matches.length!==1||!matches[0].deployment_id||!matches[0].job_id)fail('redeploy_source_evidence');
  return matches[0];
 }
-async function verifySourceNow(plan,record,identity,roots,api,token,request=jsonRequest){
+function executionEnvelope(plan,identity,run,job){
+ if(plan.targets.length!==1||!run||String(run.id)!==plan.run_id||String(run.id)!==String(identity.run_id)||
+    run.run_attempt!==identity.run_attempt||run.head_sha!==plan.head_sha||String(run.repository?.id)!==plan.repository_id||run.repository.full_name!==plan.repository||
+    !['in_progress','waiting'].includes(run.status)||!Number.isSafeInteger(run.actor?.id)||run.actor.id<=0||
+    !job||!Number.isSafeInteger(job.id)||job.id<=0||String(job.run_id)!==plan.run_id||job.run_attempt!==identity.run_attempt||
+    job.head_sha!==plan.head_sha||job.status!=='in_progress'||!targetJob(job.name,plan.targets[0].id)||
+    job.html_url!==`https://github.com/${plan.repository}/actions/runs/${plan.run_id}/job/${job.id}`)fail('current_job_identity');
+ return {sha:plan.head_sha,actor_id:run.actor.id,job_url:job.html_url};
+}
+async function readExecutionEnvelope(plan,identity,api,token,request=jsonRequest,job=null){
+ const base=`${api}/repos/${plan.repository}`,run=await request(`${base}/actions/runs/${plan.run_id}`,token);
+ if(!job){
+  const jobs=[];
+  for(let page=1;page<=2;page++){
+   const result=await request(`${base}/actions/runs/${plan.run_id}/attempts/${identity.run_attempt}/jobs?per_page=100&page=${page}`,token);
+   if(!Array.isArray(result.jobs)||result.total_count>105||jobs.length+result.jobs.length>105)fail('job_listing_bound');
+   jobs.push(...result.jobs);if(result.jobs.length<100)break;if(page===2)fail('job_listing_bound');
+  }
+  const matches=jobs.filter(j=>targetJob(j.name,plan.targets[0].id)&&j.status==='in_progress');
+  if(matches.length!==1)fail('current_job_identity');job=matches[0];
+ }
+ return executionEnvelope(plan,identity,run,job);
+}
+async function verifySourceNow(plan,record,identity,roots,api,token,request=jsonRequest,currentExecution=null){
  const source=record.source;if(!source?.plan||!source?.build||!source?.evidence)fail('redeploy_source_missing');
  const base=`${api}/repos/${plan.repository}`;
  const sourceRun=await request(`${base}/actions/runs/${plan.source_run_id}`,token);
@@ -139,16 +162,16 @@ async function verifySourceNow(plan,record,identity,roots,api,token,request=json
  const sourceJob=await request(`${base}/actions/jobs/${evidence.job_id}`,token);
  const rebuilt=await buildOnce(plan,null,null,{sourcePlan:source.plan,sourceBuild:source.build,sourceRun,sourceEvidence:[evidence],sourceDeployment,sourceJob,roots});
  if(c.canonical(rebuilt)!==c.canonical(record))fail('redeploy_source_changed');
- await recovery.current(request,base,token,sourceDeployment);
+ await recovery.current(request,base,token,sourceDeployment,currentExecution);
  // Read again after the evidence reads, so an intervening rerun fails closed.
  const after=await request(`${base}/actions/runs/${plan.source_run_id}`,token);
  if(after.run_attempt!==sourceRun.run_attempt||after.status!=='completed')fail('redeploy_source_changed');
  if(String(identity.repository_id)!==plan.repository_id)fail('redeploy_source');
  return {source,sourceRun,sourceDeployment};
 }
-async function recoverLock({plan,record,identity,roots,api,token,intent,previous,prepareOnly=false,request=jsonRequest}){
+async function recoverLock({plan,record,identity,roots,api,token,intent,previous,prepareOnly=false,request=jsonRequest,currentExecution=null}){
  if(plan.purpose!=='recover'||plan.targets.length!==1)fail('recovery_scope');
- const target=plan.targets[0],proof=await verifySourceNow(plan,record,identity,roots,api,token,request);
+ const target=plan.targets[0],proof=await verifySourceNow(plan,record,identity,roots,api,token,request,currentExecution);
  const base=`${api}/repos/${plan.repository}`,refPath=`${base}/git/ref/tags/helio/target-lock/${target.target_key}`;
  let ref;
  try{ref=await request(refPath,token);}catch(e){if(e.message!=='platform_provider_http_404')throw e;}
@@ -251,7 +274,8 @@ async function cli(){
    // This check runs under the repository environment concurrency group.
    if(plan.purpose!=='recover')assertUnsent(await artifacts(api,token,identity.repository,identity.run_id),target.id);
    const record=readJSON(path.join(state,'build.json')),artifact=c.verifyBuild(plan,record);
-   const extra=plan.purpose==='recover'?await recoverLock({plan,record,identity,roots,api,token,prepareOnly:true,previous:readJSON(path.join(state,'previous','intent.json'),true)}):{};
+   const extra=plan.purpose==='recover'?await recoverLock({plan,record,identity,roots,api,token,prepareOnly:true,previous:readJSON(path.join(state,'previous','intent.json'),true),
+     currentExecution:await readExecutionEnvelope(plan,identity,api,token)}):{};
    writeJSON(path.join(state,'intent.json'),{purpose:plan.purpose,plan_digest:plan.plan_digest,run_id:plan.run_id,run_attempt:identity.run_attempt,instance_id:target.id,artifact_digest:artifact.digest,...extra});
    return;
  }
@@ -277,7 +301,7 @@ async function cli(){
    if(!artifactID(rows,`helio-platform-intent-${target.id}-${identity.run_attempt}`))fail('intent_not_retained');
    if(plan.purpose!=='recover')assertUnsent(rows.filter(a=>a.name!==`helio-platform-intent-${target.id}-${identity.run_attempt}`),target.id);
    if(plan.purpose==='recover'){
-     const receipt=await recoverLock({plan,record,identity,roots,api,token,intent});
+     const receipt=await recoverLock({plan,record,identity,roots,api,token,intent,currentExecution:await readExecutionEnvelope(plan,identity,api,token)});
      writeJSON(path.join(state,'evidence',target.id,'evidence.json'),receipt);
      return {verified:true};
    }
@@ -287,6 +311,10 @@ async function cli(){
    }
    const matches=jobs.filter(j=>targetJob(j.name,target.id)&&String(j.run_id)===plan.run_id&&j.run_attempt===identity.run_attempt&&j.status==='in_progress');
    if(matches.length!==1)fail('job_identity');const job=matches[0];
+   // GitHub already holds this target's concurrency group. Reject stale source
+   // evidence before acquiring a durable reservation or making a deploy POST.
+   if(plan.purpose==='redeploy')await verifySourceNow(plan,record,identity,roots,api,token,jsonRequest,
+     await readExecutionEnvelope(plan,identity,api,token,jsonRequest,job));
    const idempotencyKey=`${identity.repository_id}/${plan.run_id}/${identity.run_attempt}/${target.id}`;
    const adapter=require(path.join(__dirname,'adapters',`${plan.adapter_id}.cjs`));
    const lock={acquire:async()=>{
@@ -297,7 +325,6 @@ async function cli(){
      writeJSON(path.join(state,'lock.json'),{sha:tag.sha});
    },release:async()=>{}};
    return withTargetLock(lock,async()=>{
-   if(plan.purpose==='redeploy')await verifySourceNow(plan,record,identity,roots,api,token);
    const deployment=await jsonRequest(`${api}/repos/${identity.repository}/deployments`,token,{method:'POST',body:{ref:plan.head_sha,auto_merge:false,required_contexts:[],environment:target.name,task:'helio-platform-release',
      payload:{plan_digest:plan.plan_digest,application_id:plan.application_id,run_id:plan.run_id,run_attempt:identity.run_attempt,instance_id:target.id,binding_id:target.binding_id,binding_version:target.binding_version,
               artifact_uri:artifact.uri,artifact_digest:artifact.digest,workflow_revision:plan.template.workflow_sha,idempotency_key:idempotencyKey}}});
@@ -317,4 +344,4 @@ async function cli(){
  fail('command');
 }
 if(require.main===module)cli().catch(error=>{const code=/^platform_[a-zA-Z0-9_]+$/.test(error.message)?error.message:'platform_runtime_failed';process.stderr.write(`${code}\n`);process.exitCode=1;});
-module.exports={bootstrap,buildOnce,verifyToken,jsonRequest,artifactID,assertUnsent,verifyProtection,verifyApproval,withTargetLock,validateSource,verifySourceNow,recoverLock,cli};
+module.exports={bootstrap,buildOnce,verifyToken,jsonRequest,artifactID,assertUnsent,verifyProtection,verifyApproval,withTargetLock,validateSource,verifySourceNow,recoverLock,executionEnvelope,cli};

@@ -3,13 +3,20 @@
 // from a terminal workflow or an expired lease.
 const fail=code=>{throw Error(`platform_${code}`);};
 function instant(v){const n=typeof v==='string'?Date.parse(v):NaN;if(!Number.isFinite(n))fail('current_state_unknown');return n;}
-function assertCurrent(source,deployments){
+function currentJobEnvelope(d,current){
+ return !!current&&d.task==='deploy'&&d.sha===current.sha&&d.creator?.id===current.actor_id&&
+  (!d.payload||(typeof d.payload==='object'&&!Array.isArray(d.payload)&&Object.keys(d.payload).length===0))&&
+  d.latest_status?.state==='in_progress'&&d.latest_status.log_url===current.job_url;
+}
+function assertCurrent(source,deployments,current){
  if(!source||source.latest_status?.state!=='success'||!Array.isArray(deployments)||!deployments.length||deployments.length>1000)fail('current_state_unknown');
  const created=instant(source.created_at),completed=instant(source.latest_status.created_at);
  if(deployments.filter(d=>String(d.id)===String(source.id)).length!==1)fail('current_state_unknown');
+ if(deployments.filter(d=>currentJobEnvelope(d,current)).length>1)fail('current_state_changed');
  for(const d of deployments){
   if(d.environment!==source.environment)fail('current_state_unknown');
   if(String(d.id)===String(source.id))continue;
+  if(currentJobEnvelope(d,current))continue;
   if(instant(d.created_at)>=created)fail('current_state_changed');
   const envelope=d.task==='deploy'&&d.sha===source.sha&&d.latest_status?.state==='success'&&
     /\/actions\/runs\/\d+\/job\/\d+$/.test(source.latest_status.log_url||'')&&d.latest_status.log_url===source.latest_status.log_url;
@@ -23,7 +30,7 @@ function verifyLock(ref,tag,proof,sourceSHA){
  for(const k of ['repository_id','run_id','run_attempt','plan_digest','instance_id','artifact_digest'])if(owner[k]!==proof[k])fail('target_lock_owner');
  return true;
 }
-async function current(request,base,token,source){
+async function current(request,base,token,source,execution){
  const rows=[],started=Date.now();
  const within=()=>{if(Date.now()-started>=30000)fail('current_state_bound');};
  for(let page=1;page<=10;page++){
@@ -37,11 +44,12 @@ async function current(request,base,token,source){
   within();
   if(String(d.id)===String(source.id))d.latest_status=source.latest_status;
   else {
-   if(instant(d.created_at)>=instant(source.created_at))fail('current_state_changed');
+   if(instant(d.created_at)>=instant(source.created_at)&&
+      !(execution&&d.task==='deploy'&&d.sha===execution.sha&&d.creator?.id===execution.actor_id))fail('current_state_changed');
    // A later status on an older deployment may mean a rollback or outside deploy.
    d.latest_status=(await request(`${base}/deployments/${d.id}/statuses?per_page=1`,token))[0];
   }
  }
- return assertCurrent(source,rows);
+ return assertCurrent(source,rows,execution);
 }
 module.exports={assertCurrent,verifyLock,current};
