@@ -85,6 +85,7 @@
           "artifact-ids" : "${{ steps.probe.outputs.plan_id }}",
           "run-id" : "${{ github.run_id }}",
           "github-token" : "${{ github.token }}",
+          "merge-multiple" : true,
           "path" : "${{ env.HELIO_STATE_DIR }}"
         },
         "if" : "${{ steps.probe.outputs.plan_id != '' }}"
@@ -138,6 +139,7 @@
           "artifact-ids" : "${{ steps.probe.outputs.plan_id }}",
           "run-id" : "${{ github.run_id }}",
           "github-token" : "${{ github.token }}",
+          "merge-multiple" : true,
           "path" : "${{ env.HELIO_STATE_DIR }}"
         }
       }, {
@@ -147,6 +149,7 @@
           "artifact-ids" : "${{ steps.probe.outputs.build_id }}",
           "run-id" : "${{ github.run_id }}",
           "github-token" : "${{ github.token }}",
+          "merge-multiple" : true,
           "path" : "${{ env.HELIO_STATE_DIR }}"
         },
         "if" : "${{ steps.probe.outputs.build_id != '' }}"
@@ -161,6 +164,7 @@
           "artifact-ids" : "${{ steps.source_probe.outputs.plan_id }}",
           "run-id" : "${{ steps.source_probe.outputs.run_id }}",
           "github-token" : "${{ github.token }}",
+          "merge-multiple" : true,
           "path" : "${{ env.HELIO_STATE_DIR }}/source"
         },
         "if" : "${{ needs.plan.outputs.purpose != 'forward' }}"
@@ -171,6 +175,7 @@
           "artifact-ids" : "${{ steps.source_probe.outputs.build_id }}",
           "run-id" : "${{ steps.source_probe.outputs.run_id }}",
           "github-token" : "${{ github.token }}",
+          "merge-multiple" : true,
           "path" : "${{ env.HELIO_STATE_DIR }}/source"
         },
         "if" : "${{ needs.plan.outputs.purpose != 'forward' }}"
@@ -181,6 +186,7 @@
           "artifact-ids" : "${{ steps.source_probe.outputs.evidence_id }}",
           "run-id" : "${{ steps.source_probe.outputs.run_id }}",
           "github-token" : "${{ github.token }}",
+          "merge-multiple" : true,
           "path" : "${{ env.HELIO_STATE_DIR }}/source"
         },
         "if" : "${{ needs.plan.outputs.purpose != 'forward' }}"
@@ -245,6 +251,7 @@
           "artifact-ids" : "${{ steps.probe.outputs.plan_id }}",
           "run-id" : "${{ github.run_id }}",
           "github-token" : "${{ github.token }}",
+          "merge-multiple" : true,
           "path" : "${{ env.HELIO_STATE_DIR }}"
         }
       }, {
@@ -254,6 +261,7 @@
           "artifact-ids" : "${{ steps.probe.outputs.build_id }}",
           "run-id" : "${{ github.run_id }}",
           "github-token" : "${{ github.token }}",
+          "merge-multiple" : true,
           "path" : "${{ env.HELIO_STATE_DIR }}"
         }
       }, {
@@ -263,6 +271,7 @@
           "artifact-ids" : "${{ steps.probe.outputs.prior_intent_id }}",
           "run-id" : "${{ github.run_id }}",
           "github-token" : "${{ github.token }}",
+          "merge-multiple" : true,
           "path" : "${{ env.HELIO_STATE_DIR }}/previous"
         },
         "if" : "${{ steps.probe.outputs.prior_intent_id != '' }}"
@@ -353,6 +362,7 @@
           "artifact-ids" : "${{ steps.probe.outputs.plan_id }}",
           "run-id" : "${{ github.run_id }}",
           "github-token" : "${{ github.token }}",
+          "merge-multiple" : true,
           "path" : "${{ env.HELIO_STATE_DIR }}"
         }
       }, {
@@ -362,6 +372,7 @@
           "artifact-ids" : "${{ steps.probe.outputs.build_id }}",
           "run-id" : "${{ github.run_id }}",
           "github-token" : "${{ github.token }}",
+          "merge-multiple" : true,
           "path" : "${{ env.HELIO_STATE_DIR }}"
         }
       }, {
@@ -371,6 +382,7 @@
           "artifact-ids" : "${{ steps.probe.outputs.prior_intent_id }}",
           "run-id" : "${{ github.run_id }}",
           "github-token" : "${{ github.token }}",
+          "merge-multiple" : true,
           "path" : "${{ env.HELIO_STATE_DIR }}/previous"
         },
         "if" : "${{ steps.probe.outputs.prior_intent_id != '' }}"
@@ -461,6 +473,7 @@
           "artifact-ids" : "${{ steps.probe.outputs.plan_id }}",
           "run-id" : "${{ github.run_id }}",
           "github-token" : "${{ github.token }}",
+          "merge-multiple" : true,
           "path" : "${{ env.HELIO_STATE_DIR }}"
         }
       }, {
@@ -470,6 +483,7 @@
           "artifact-ids" : "${{ steps.probe.outputs.build_id }}",
           "run-id" : "${{ github.run_id }}",
           "github-token" : "${{ github.token }}",
+          "merge-multiple" : true,
           "path" : "${{ env.HELIO_STATE_DIR }}"
         }
       }, {
@@ -479,6 +493,7 @@
           "artifact-ids" : "${{ steps.probe.outputs.prior_intent_id }}",
           "run-id" : "${{ github.run_id }}",
           "github-token" : "${{ github.token }}",
+          "merge-multiple" : true,
           "path" : "${{ env.HELIO_STATE_DIR }}/previous"
         },
         "if" : "${{ steps.probe.outputs.prior_intent_id != '' }}"
