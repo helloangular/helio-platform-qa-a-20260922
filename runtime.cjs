@@ -5,6 +5,7 @@ const c=require('./contract.cjs');
 const protection=require('./protection.cjs');
 const gates=require('./gates.cjs');
 const recovery=require('./recovery.cjs');
+const records=require('./records.cjs');
 const fail=code=>{throw Error(`platform_${code}`);};
 const targetJob=(name,id)=>typeof name==='string'&&(name===`helio-target:${id}`||name.endsWith(` / helio-target:${id}`));
 async function bootstrap({store,source,roots,identity,request}) {
@@ -189,6 +190,14 @@ async function recoverLock({plan,record,identity,roots,api,token,intent,previous
  return {schema:'helio_platform_recovery_v1',...intent,source_run_id:plan.source_run_id,source_attempt:proof.sourceRun.run_attempt,
    recovered_lock_sha:sha,source_deployment_id:String(proof.sourceDeployment.id),status:'recovered'};
 }
+async function restoreRetained({scope,api,token,request=jsonRequest,planID,buildID,attempt,command}){
+ const opts={scope,api,token,request};
+ const plan=planID?null:await records.read({...opts,name:'helio-platform-plan'});
+ if(!planID&&!plan&&(attempt!==1||command!=='probe'))fail('retained_plan_missing');
+ const build=command==='probe'?null:(buildID?null:await records.read({...opts,name:'helio-platform-build'}));
+ if(command!=='probe'&&!buildID&&!build&&(attempt!==1||command==='probe-deploy'))fail('retained_build_missing');
+ return {plan,build};
+}
 function requestFromEnv(){return {application_id:process.env.HELIO_APPLICATION,purpose:process.env.HELIO_PURPOSE||'forward',
  ...(process.env.HELIO_TARGETS?{targets:JSON.parse(process.env.HELIO_TARGETS)}:{}),...(process.env.HELIO_SOURCE_RUN?{source_run_id:process.env.HELIO_SOURCE_RUN}:{})};}
 function emitPlan(plan){
@@ -209,21 +218,24 @@ async function cli(){
  const policy=readJSON(path.join(__dirname,'trust.json')),roots=policy.keys;
  const api=process.env.GITHUB_API_URL||'https://api.github.com',token=process.env.GITHUB_TOKEN;
  const identity=await runtimeIdentity(policy),request=requestFromEnv();
+ const recordOptions={scope:identity,api,token,request:jsonRequest};
  if(['probe','probe-build','probe-deploy'].includes(command)){
    const rows=await artifacts(api,token,identity.repository,identity.run_id);
    const p=artifactID(rows,'helio-platform-plan'),b=artifactID(rows,'helio-platform-build');
-   if(!p&&identity.run_attempt!==1)fail('retained_plan_missing');
-   if(!p&&command!=='probe')fail('retained_plan_missing');
-   if(!b&&command==='probe-deploy')fail('retained_build_missing');
+   const restored=await restoreRetained({...recordOptions,planID:p,buildID:b,attempt:identity.run_attempt,command});
+   if(restored.plan)writeJSON(path.join(state,'plan.json'),restored.plan);
+   if(restored.build)writeJSON(path.join(state,'build.json'),restored.build);
    output('plan_id',p);output('build_id',b);
    if(command==='probe-deploy'){
      let previous='';
      if(request.purpose==='recover'){
        const prefix=`helio-platform-intent-${process.env.HELIO_TARGET_ID}-`;
-       const prior=rows.filter(a=>a.name.startsWith(prefix));
+       const durable=await records.intents({...recordOptions,target:process.env.HELIO_TARGET_ID});
+       const prior=[...rows.filter(a=>a.name.startsWith(prefix)),...durable.filter(d=>!rows.some(a=>a.name===d.name))];
        if(prior.some(a=>a.expired||!/^\d+$/.test(a.name.slice(prefix.length))||Number(a.name.slice(prefix.length))>=identity.run_attempt))fail('recovery_intent_scope');
        prior.sort((a,b)=>Number(b.name.slice(prefix.length))-Number(a.name.slice(prefix.length)));
-       if(prior.length)previous=String(prior[0].id);
+       if(prior.length){if(prior[0].id)previous=String(prior[0].id);
+         else {const retained=await records.read({...recordOptions,name:prior[0].name});if(!retained)fail('recovery_intent_missing');writeJSON(path.join(state,'previous','intent.json'),retained);}}
      }
      output('prior_intent_id',previous);
    }
@@ -238,6 +250,7 @@ async function cli(){
      store:{loadPlan:async()=>readJSON(path.join(state,'plan.json'),true),savePlan:async p=>{writeJSON(path.join(state,'plan.json'),p);return p;}},
      source:{repository,active:async()=>{const ref=await jsonRequest(`${api}/repos/${repository}/git/ref/heads/${encodeURIComponent(branch)}`,configToken);return content('active.json',ref.object.sha);},
        configuration:async commit=>content('configuration.json',commit)}});
+   await records.put({...recordOptions,name:'helio-platform-plan',record:plan});
    emitPlan(plan);return;
  }
  const plan=c.resumePlan(readJSON(path.join(state,'plan.json')),roots,identity,request);
@@ -246,7 +259,10 @@ async function cli(){
    const sourceRun=await jsonRequest(`${api}/repos/${identity.repository}/actions/runs/${plan.source_run_id}`,token);
    const rows=await artifacts(api,token,identity.repository,plan.source_run_id);
    for(const [key,name] of [['plan_id','helio-platform-plan'],['build_id','helio-platform-build'],['evidence_id',`helio-platform-evidence-${plan.targets[0].id}-${sourceRun.run_attempt}`]]){
-     const id=artifactID(rows,name);if(!id)fail('redeploy_source_missing');output(key,id);
+     const id=artifactID(rows,name);
+     if(!id){const saved=await records.read({...recordOptions,scope:{...identity,run_id:plan.source_run_id,head_sha:sourceRun.head_sha},name});
+       if(!saved)fail('redeploy_source_missing');writeJSON(path.join(state,'source',key==='plan_id'?'plan.json':key==='build_id'?'build.json':'evidence.json'),saved);}
+     output(key,id);
    }
    output('run_id',plan.source_run_id);return;
  }
@@ -265,18 +281,22 @@ async function cli(){
    }
    const record=await buildOnce(plan,existing,plan.purpose==='forward'?require(adapterPath):null,{roots,sourceRun,sourceEvidence,sourceDeployment,sourceJob,sourceDirectory:path.resolve(process.env.HELIO_SOURCE_DIR||'.'),
      sourcePlan:readJSON(path.join(state,'source','plan.json'),true),sourceBuild:readJSON(path.join(state,'source','build.json'),true)});
-   if(!existing)writeJSON(path.join(state,'build.json'),record);output('artifact_digest',record.artifact.digest);return;
+   if(!existing)writeJSON(path.join(state,'build.json'),record);
+   await records.put({...recordOptions,name:'helio-platform-build',record});
+   output('artifact_digest',record.artifact.digest);return;
  }
  if(command==='prepare'){
    const target=plan.targets.find(t=>t.id===process.env.HELIO_TARGET_ID);if(!target)fail('target_identity');
    await verifyApproval(api,token,plan,identity,target,roots);
    await verifyProtection(api,process.env.HELIO_PROTECTION_TOKEN,identity,target);
    // This check runs under the repository environment concurrency group.
-   if(plan.purpose!=='recover')assertUnsent(await artifacts(api,token,identity.repository,identity.run_id),target.id);
+   if(plan.purpose!=='recover')assertUnsent([...(await artifacts(api,token,identity.repository,identity.run_id)),...(await records.intents({...recordOptions,target:target.id}))],target.id);
    const record=readJSON(path.join(state,'build.json')),artifact=c.verifyBuild(plan,record);
    const extra=plan.purpose==='recover'?await recoverLock({plan,record,identity,roots,api,token,prepareOnly:true,previous:readJSON(path.join(state,'previous','intent.json'),true),
      currentExecution:await readExecutionEnvelope(plan,identity,api,token)}):{};
-   writeJSON(path.join(state,'intent.json'),{purpose:plan.purpose,plan_digest:plan.plan_digest,run_id:plan.run_id,run_attempt:identity.run_attempt,instance_id:target.id,artifact_digest:artifact.digest,...extra});
+   const intent={purpose:plan.purpose,plan_digest:plan.plan_digest,run_id:plan.run_id,run_attempt:identity.run_attempt,instance_id:target.id,artifact_digest:artifact.digest,...extra};
+   await records.put({...recordOptions,name:`helio-platform-intent-${target.id}-${identity.run_attempt}`,record:intent});
+   writeJSON(path.join(state,'intent.json'),intent);
    return;
  }
  if(command==='unlock'){
@@ -299,10 +319,13 @@ async function cli(){
    if(intent.plan_digest!==plan.plan_digest||intent.run_attempt!==identity.run_attempt||intent.instance_id!==target.id||intent.artifact_digest!==artifact.digest)fail('intent_scope');
    const rows=await artifacts(api,token,identity.repository,identity.run_id);
    if(!artifactID(rows,`helio-platform-intent-${target.id}-${identity.run_attempt}`))fail('intent_not_retained');
-   if(plan.purpose!=='recover')assertUnsent(rows.filter(a=>a.name!==`helio-platform-intent-${target.id}-${identity.run_attempt}`),target.id);
+   const durableIntent=await records.read({...recordOptions,name:`helio-platform-intent-${target.id}-${identity.run_attempt}`});
+   if(c.canonical(durableIntent)!==c.canonical(intent))fail('intent_not_retained');
+   if(plan.purpose!=='recover')assertUnsent([...rows,...(await records.intents({...recordOptions,target:target.id}))].filter(a=>a.name!==`helio-platform-intent-${target.id}-${identity.run_attempt}`),target.id);
    if(plan.purpose==='recover'){
      const receipt=await recoverLock({plan,record,identity,roots,api,token,intent,currentExecution:await readExecutionEnvelope(plan,identity,api,token)});
      writeJSON(path.join(state,'evidence',target.id,'evidence.json'),receipt);
+     await records.put({...recordOptions,name:`helio-platform-evidence-${target.id}-${identity.run_attempt}`,record:receipt});
      return {verified:true};
    }
    const jobs=[];for(let page=1;page<=10;page++){
@@ -336,7 +359,9 @@ async function cli(){
      if(result?.artifact_digest!==artifact.digest||result?.verified!==true)fail('deployment_verification');outcome='succeeded';
    }finally{
      const status=await jsonRequest(`${api}/repos/${identity.repository}/deployments/${deployment.id}/statuses`,token,{method:'POST',body:{state:outcome==='succeeded'?'success':'error',log_url:job.html_url,environment:target.name,auto_inactive:false}});
-     writeJSON(path.join(state,'evidence',target.id,'evidence.json'),{...base,status:outcome,provider_status:status.state,provider_event_at:status.created_at});
+     const evidence={...base,status:outcome,provider_status:status.state,provider_event_at:status.created_at};
+     writeJSON(path.join(state,'evidence',target.id,'evidence.json'),evidence);
+     await records.put({...recordOptions,name:`helio-platform-evidence-${target.id}-${identity.run_attempt}`,record:evidence});
    }
    return {verified:true};
    });
@@ -344,4 +369,4 @@ async function cli(){
  fail('command');
 }
 if(require.main===module)cli().catch(error=>{const code=/^platform_[a-zA-Z0-9_]+$/.test(error.message)?error.message:'platform_runtime_failed';process.stderr.write(`${code}\n`);process.exitCode=1;});
-module.exports={bootstrap,buildOnce,verifyToken,jsonRequest,artifactID,assertUnsent,verifyProtection,verifyApproval,withTargetLock,validateSource,verifySourceNow,recoverLock,executionEnvelope,cli};
+module.exports={bootstrap,buildOnce,verifyToken,jsonRequest,artifactID,assertUnsent,verifyProtection,verifyApproval,withTargetLock,validateSource,verifySourceNow,recoverLock,executionEnvelope,restoreRetained,cli};
