@@ -314,7 +314,10 @@
         "max-parallel" : 20,
         "matrix" : "${{ fromJSON(needs.plan.outputs.qa_matrix) }}"
       },
-      "environment" : "${{ matrix.name }}",
+      "environment" : {
+        "name" : "${{ matrix.name }}",
+        "deployment" : "${{ needs.plan.outputs.purpose != 'recover' }}"
+      },
       "runs-on" : "${{ matrix.runner }}"
     },
     "preprod" : {
@@ -425,7 +428,10 @@
         "max-parallel" : 20,
         "matrix" : "${{ fromJSON(needs.plan.outputs.preprod_matrix) }}"
       },
-      "environment" : "${{ matrix.name }}",
+      "environment" : {
+        "name" : "${{ matrix.name }}",
+        "deployment" : "${{ needs.plan.outputs.purpose != 'recover' }}"
+      },
       "runs-on" : "${{ matrix.runner }}"
     },
     "production" : {
@@ -536,7 +542,10 @@
         "max-parallel" : 20,
         "matrix" : "${{ fromJSON(needs.plan.outputs.production_matrix) }}"
       },
-      "environment" : "${{ matrix.name }}",
+      "environment" : {
+        "name" : "${{ matrix.name }}",
+        "deployment" : "${{ needs.plan.outputs.purpose != 'recover' }}"
+      },
       "runs-on" : "${{ matrix.runner }}"
     }
   }
