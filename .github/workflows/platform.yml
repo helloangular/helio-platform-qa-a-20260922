@@ -67,7 +67,7 @@
         "uses" : "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
         "with" : {
           "repository" : "helloangular/helio-platform-qa-a-20260922",
-          "ref" : "8d4c4a15e730071e83c65ee52cdf66f17d78c7e5",
+          "ref" : "47f181142f6c4b2f002be42b91122f18fb720b0f",
           "path" : ".helio-runtime",
           "token" : "${{ secrets.platform_read_token }}",
           "persist-credentials" : false
@@ -113,7 +113,7 @@
         "uses" : "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
         "with" : {
           "repository" : "helloangular/helio-platform-qa-a-20260922",
-          "ref" : "8d4c4a15e730071e83c65ee52cdf66f17d78c7e5",
+          "ref" : "47f181142f6c4b2f002be42b91122f18fb720b0f",
           "path" : ".helio-runtime",
           "token" : "${{ secrets.platform_read_token }}",
           "persist-credentials" : false
@@ -225,7 +225,7 @@
         "uses" : "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
         "with" : {
           "repository" : "helloangular/helio-platform-qa-a-20260922",
-          "ref" : "8d4c4a15e730071e83c65ee52cdf66f17d78c7e5",
+          "ref" : "47f181142f6c4b2f002be42b91122f18fb720b0f",
           "path" : ".helio-runtime",
           "token" : "${{ secrets.platform_read_token }}",
           "persist-credentials" : false
@@ -336,7 +336,7 @@
         "uses" : "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
         "with" : {
           "repository" : "helloangular/helio-platform-qa-a-20260922",
-          "ref" : "8d4c4a15e730071e83c65ee52cdf66f17d78c7e5",
+          "ref" : "47f181142f6c4b2f002be42b91122f18fb720b0f",
           "path" : ".helio-runtime",
           "token" : "${{ secrets.platform_read_token }}",
           "persist-credentials" : false
@@ -447,7 +447,7 @@
         "uses" : "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
         "with" : {
           "repository" : "helloangular/helio-platform-qa-a-20260922",
-          "ref" : "8d4c4a15e730071e83c65ee52cdf66f17d78c7e5",
+          "ref" : "47f181142f6c4b2f002be42b91122f18fb720b0f",
           "path" : ".helio-runtime",
           "token" : "${{ secrets.platform_read_token }}",
           "persist-credentials" : false
