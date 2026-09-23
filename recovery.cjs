@@ -8,7 +8,11 @@ function currentJobEnvelope(d,current){
   (!d.payload||(typeof d.payload==='object'&&!Array.isArray(d.payload)&&Object.keys(d.payload).length===0))&&
   d.latest_status?.state==='in_progress'&&d.latest_status.log_url===current.job_url;
 }
-function assertCurrent(source,deployments,current){
+function queuedJobEnvelope(d){
+ return d.task==='deploy'&&(!d.payload||(typeof d.payload==='object'&&!Array.isArray(d.payload)&&Object.keys(d.payload).length===0))&&
+  ['queued','pending','waiting'].includes(d.latest_status?.state);
+}
+function assertCurrent(source,deployments,current,verifiedQueued=new Set()){
  if(!source||source.latest_status?.state!=='success'||!Array.isArray(deployments)||!deployments.length||deployments.length>1000)fail('current_state_unknown');
  const created=instant(source.created_at),completed=instant(source.latest_status.created_at);
  if(deployments.filter(d=>String(d.id)===String(source.id)).length!==1)fail('current_state_unknown');
@@ -17,6 +21,7 @@ function assertCurrent(source,deployments,current){
   if(d.environment!==source.environment)fail('current_state_unknown');
   if(String(d.id)===String(source.id))continue;
   if(currentJobEnvelope(d,current))continue;
+  if(verifiedQueued.has(String(d.id))&&queuedJobEnvelope(d))continue;
   if(instant(d.created_at)>=created)fail('current_state_changed');
   const envelope=d.task==='deploy'&&d.sha===source.sha&&d.latest_status?.state==='success'&&
     /\/actions\/runs\/\d+\/job\/\d+$/.test(source.latest_status.log_url||'')&&d.latest_status.log_url===source.latest_status.log_url;
@@ -30,8 +35,8 @@ function verifyLock(ref,tag,proof,sourceSHA){
  for(const k of ['repository_id','run_id','run_attempt','plan_digest','instance_id','artifact_digest'])if(owner[k]!==proof[k])fail('target_lock_owner');
  return true;
 }
-async function current(request,base,token,source,execution){
- const rows=[],started=Date.now();
+async function current(request,base,token,source,execution,verifyQueued){
+ const rows=[],started=Date.now(),verifiedQueued=new Set();let queueProofs=0;
  const within=()=>{if(Date.now()-started>=30000)fail('current_state_bound');};
  for(let page=1;page<=10;page++){
   within();
@@ -44,12 +49,20 @@ async function current(request,base,token,source,execution){
   within();
   if(String(d.id)===String(source.id))d.latest_status=source.latest_status;
   else {
-   if(instant(d.created_at)>=instant(source.created_at)&&
-      !(execution&&d.task==='deploy'&&d.sha===execution.sha&&d.creator?.id===execution.actor_id))fail('current_state_changed');
+   // Native deployment envelopes are created before their jobs acquire the
+   // target concurrency group. Read their state before rejecting a newer row.
    // A later status on an older deployment may mean a rollback or outside deploy.
    d.latest_status=(await request(`${base}/deployments/${d.id}/statuses?per_page=1`,token))[0];
+   if(execution&&verifyQueued&&queuedJobEnvelope(d)){
+    if(++queueProofs>8)fail('current_state_bound');
+    if(await verifyQueued(d)){
+     within();const after=(await request(`${base}/deployments/${d.id}/statuses?per_page=1`,token))[0];
+     if(after?.state!==d.latest_status.state||after?.log_url!==d.latest_status.log_url)fail('current_state_changed');
+     verifiedQueued.add(String(d.id));
+    }
+   }
   }
  }
- return assertCurrent(source,rows,execution);
+ return assertCurrent(source,rows,execution,verifiedQueued);
 }
-module.exports={assertCurrent,verifyLock,current};
+module.exports={assertCurrent,verifyLock,current,queuedJobEnvelope};
