@@ -156,7 +156,23 @@ async function readExecutionEnvelope(plan,identity,api,token,request=jsonRequest
 // A prior intent means it may already have changed the target and is never exempt.
 async function verifyQueuedEnvelope(plan,identity,roots,api,token,deployment,request=jsonRequest){
  const target=plan.targets[0],base=`${api}/repos/${plan.repository}`;
- const match=/^https:\/\/github\.com\/([^/]+\/[^/]+)\/actions\/runs\/([1-9][0-9]*)\/job\/([1-9][0-9]*)$/.exec(deployment.latest_status?.log_url||'');
+ let logURL=deployment.latest_status?.log_url,linkedCheck=null;
+ // A queued concurrency job can have a deployment row but no status yet.
+ // CheckRun.deployment supplies the exact link; SHA only bounds the lookup.
+ if(deployment.latest_status==null){
+  if(!/^[a-f0-9]{40}$/.test(deployment.sha||''))fail('current_state_changed');
+  const matches=[];let complete=false;
+  for(let page=1;page<=5;page++){
+   const listing=await request(`${base}/commits/${deployment.sha}/check-runs?filter=all&per_page=100&page=${page}`,token);
+   if(!Number.isSafeInteger(listing.total_count)||listing.total_count<0||listing.total_count>500||!Array.isArray(listing.check_runs)||listing.check_runs.length>100)fail('current_state_bound');
+   matches.push(...listing.check_runs.filter(j=>String(j.deployment?.id)===String(deployment.id)));
+   if(listing.check_runs.length<100){complete=true;break;}
+  }
+  if(!complete)fail('current_state_bound');
+  if(matches.length!==1)fail('current_state_changed');
+  linkedCheck=matches[0];logURL=linkedCheck.details_url;
+ }
+ const match=/^https:\/\/github\.com\/([^/]+\/[^/]+)\/actions\/runs\/([1-9][0-9]*)\/job\/([1-9][0-9]*)$/.exec(logURL||'');
  if(!recovery.queuedJobEnvelope(deployment)||!match||match[1]!==plan.repository||match[2]===plan.run_id||deployment.environment!==target.name)fail('current_state_changed');
  const run=await request(`${base}/actions/runs/${match[2]}`,token);
  const workflow=`${plan.template.repository}/${plan.template.workflow}@${plan.template.workflow_sha}`;
@@ -165,8 +181,13 @@ async function verifyQueuedEnvelope(plan,identity,roots,api,token,deployment,req
     (run.referenced_workflows||[]).filter(w=>w.path===workflow&&w.sha===plan.template.workflow_sha).length!==1)fail('current_state_changed');
  const checkJob=job=>{
   if(String(job.id)!==match[3]||String(job.run_id)!==match[2]||job.run_attempt!==run.run_attempt||job.head_sha!==run.head_sha||
-     !['pending','queued','waiting'].includes(job.status)||job.conclusion!==null||!targetJob(job.name,target.id)||job.html_url!==deployment.latest_status.log_url)fail('current_state_changed');
+     !['pending','queued','waiting'].includes(job.status)||job.conclusion!==null||!targetJob(job.name,target.id)||job.html_url!==logURL)fail('current_state_changed');
  };
+ const checkLink=check=>{
+  if(String(check.id)!==match[3]||String(check.deployment?.id)!==String(deployment.id)||check.deployment?.environment!==target.name||check.deployment?.task!=='deploy'||
+     check.head_sha!==run.head_sha||check.details_url!==logURL||!['pending','queued','waiting'].includes(check.status)||check.conclusion!==null)fail('current_state_changed');
+ };
+ if(linkedCheck)checkLink(linkedCheck);
  checkJob(await request(`${base}/actions/jobs/${match[3]}`,token));
  const scope={repository:plan.repository,repository_id:plan.repository_id,run_id:match[2],head_sha:run.head_sha};
  const retained=await records.read({scope,api,token,name:'helio-platform-plan',request});
@@ -177,6 +198,7 @@ async function verifyQueuedEnvelope(plan,identity,roots,api,token,deployment,req
  checkJob(await request(`${base}/actions/jobs/${match[3]}`,token));
  const after=await request(`${base}/actions/runs/${match[2]}`,token);
  if(after.run_attempt!==run.run_attempt||after.status==='completed')fail('current_state_changed');
+ if(linkedCheck)checkLink(await request(`${base}/check-runs/${match[3]}`,token));
  return true;
 }
 async function verifySourceNow(plan,record,identity,roots,api,token,request=jsonRequest,currentExecution=null){
