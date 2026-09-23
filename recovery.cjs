@@ -10,7 +10,7 @@ function currentJobEnvelope(d,current){
 }
 function queuedJobEnvelope(d){
  return d.task==='deploy'&&(!d.payload||(typeof d.payload==='object'&&!Array.isArray(d.payload)&&Object.keys(d.payload).length===0))&&
-  ['queued','pending','waiting'].includes(d.latest_status?.state);
+  (d.latest_status==null||['queued','pending','waiting'].includes(d.latest_status.state));
 }
 function assertCurrent(source,deployments,current,verifiedQueued=new Set()){
  if(!source||source.latest_status?.state!=='success'||!Array.isArray(deployments)||!deployments.length||deployments.length>1000)fail('current_state_unknown');
@@ -57,7 +57,7 @@ async function current(request,base,token,source,execution,verifyQueued){
     if(++queueProofs>8)fail('current_state_bound');
     if(await verifyQueued(d)){
      within();const after=(await request(`${base}/deployments/${d.id}/statuses?per_page=1`,token))[0];
-     if(after?.state!==d.latest_status.state||after?.log_url!==d.latest_status.log_url)fail('current_state_changed');
+     if(after?.state!==d.latest_status?.state||after?.log_url!==d.latest_status?.log_url)fail('current_state_changed');
      verifiedQueued.add(String(d.id));
     }
    }
