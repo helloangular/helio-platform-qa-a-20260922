@@ -36,6 +36,7 @@
   "permissions" : {
     "contents" : "read",
     "actions" : "read",
+    "checks" : "read",
     "deployments" : "read",
     "id-token" : "write"
   },
@@ -72,7 +73,7 @@
         "uses" : "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
         "with" : {
           "repository" : "helloangular/helio-platform-qa-a-20260922",
-          "ref" : "cf7c30a926834833e1ea0571b293d9983e839868",
+          "ref" : "be67ab2fb947f40cabd8ba5f140103ad4aa0e582",
           "path" : ".helio-runtime",
           "token" : "${{ secrets.platform_read_token }}",
           "persist-credentials" : false
@@ -123,7 +124,7 @@
         "uses" : "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
         "with" : {
           "repository" : "helloangular/helio-platform-qa-a-20260922",
-          "ref" : "cf7c30a926834833e1ea0571b293d9983e839868",
+          "ref" : "be67ab2fb947f40cabd8ba5f140103ad4aa0e582",
           "path" : ".helio-runtime",
           "token" : "${{ secrets.platform_read_token }}",
           "persist-credentials" : false
@@ -222,6 +223,7 @@
       "permissions" : {
         "contents" : "write",
         "actions" : "read",
+        "checks" : "read",
         "deployments" : "write",
         "id-token" : "write"
       },
@@ -236,7 +238,7 @@
         "uses" : "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
         "with" : {
           "repository" : "helloangular/helio-platform-qa-a-20260922",
-          "ref" : "cf7c30a926834833e1ea0571b293d9983e839868",
+          "ref" : "be67ab2fb947f40cabd8ba5f140103ad4aa0e582",
           "path" : ".helio-runtime",
           "token" : "${{ secrets.platform_read_token }}",
           "persist-credentials" : false
@@ -338,6 +340,7 @@
       "permissions" : {
         "contents" : "write",
         "actions" : "read",
+        "checks" : "read",
         "deployments" : "write",
         "id-token" : "write"
       },
@@ -352,7 +355,7 @@
         "uses" : "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
         "with" : {
           "repository" : "helloangular/helio-platform-qa-a-20260922",
-          "ref" : "cf7c30a926834833e1ea0571b293d9983e839868",
+          "ref" : "be67ab2fb947f40cabd8ba5f140103ad4aa0e582",
           "path" : ".helio-runtime",
           "token" : "${{ secrets.platform_read_token }}",
           "persist-credentials" : false
@@ -454,6 +457,7 @@
       "permissions" : {
         "contents" : "write",
         "actions" : "read",
+        "checks" : "read",
         "deployments" : "write",
         "id-token" : "write"
       },
@@ -468,7 +472,7 @@
         "uses" : "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
         "with" : {
           "repository" : "helloangular/helio-platform-qa-a-20260922",
-          "ref" : "cf7c30a926834833e1ea0571b293d9983e839868",
+          "ref" : "be67ab2fb947f40cabd8ba5f140103ad4aa0e582",
           "path" : ".helio-runtime",
           "token" : "${{ secrets.platform_read_token }}",
           "persist-credentials" : false
