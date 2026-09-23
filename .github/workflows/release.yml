@@ -32,7 +32,7 @@
   },
   "jobs" : {
     "platform" : {
-      "uses" : "helloangular/helio-platform-qa-a-20260922/.github/workflows/platform.yml@69c5e6c730719eedb41cbcc2b30cc928913742cb",
+      "uses" : "helloangular/helio-platform-qa-a-20260922/.github/workflows/platform.yml@01150d7f6138153fc5c222a87b0b350a1595485d",
       "with" : {
         "application_id" : "b6c20b3f-b790-4146-b994-d2e7b97e18e1",
         "purpose" : "${{ inputs.purpose || 'forward' }}",
