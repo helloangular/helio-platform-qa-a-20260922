@@ -152,6 +152,33 @@ async function readExecutionEnvelope(plan,identity,api,token,request=jsonRequest
  }
  return executionEnvelope(plan,identity,run,job);
 }
+// Ignore only a still-queued sibling from this exact signed workflow and target.
+// A prior intent means it may already have changed the target and is never exempt.
+async function verifyQueuedEnvelope(plan,identity,roots,api,token,deployment,request=jsonRequest){
+ const target=plan.targets[0],base=`${api}/repos/${plan.repository}`;
+ const match=/^https:\/\/github\.com\/([^/]+\/[^/]+)\/actions\/runs\/([1-9][0-9]*)\/job\/([1-9][0-9]*)$/.exec(deployment.latest_status?.log_url||'');
+ if(!recovery.queuedJobEnvelope(deployment)||!match||match[1]!==plan.repository||match[2]===plan.run_id||deployment.environment!==target.name)fail('current_state_changed');
+ const run=await request(`${base}/actions/runs/${match[2]}`,token);
+ const workflow=`${plan.template.repository}/${plan.template.workflow}@${plan.template.workflow_sha}`;
+ if(String(run.id)!==match[2]||String(run.repository?.id)!==plan.repository_id||run.repository?.full_name!==plan.repository||run.head_sha!==deployment.sha||
+    !Number.isSafeInteger(run.actor?.id)||run.actor.id<1||run.actor.id!==deployment.creator?.id||!Number.isSafeInteger(run.run_attempt)||run.run_attempt<1||!['pending','queued','waiting','in_progress'].includes(run.status)||
+    (run.referenced_workflows||[]).filter(w=>w.path===workflow&&w.sha===plan.template.workflow_sha).length!==1)fail('current_state_changed');
+ const checkJob=job=>{
+  if(String(job.id)!==match[3]||String(job.run_id)!==match[2]||job.run_attempt!==run.run_attempt||job.head_sha!==run.head_sha||
+     !['pending','queued','waiting'].includes(job.status)||job.conclusion!==null||!targetJob(job.name,target.id)||job.html_url!==deployment.latest_status.log_url)fail('current_state_changed');
+ };
+ checkJob(await request(`${base}/actions/jobs/${match[3]}`,token));
+ const scope={repository:plan.repository,repository_id:plan.repository_id,run_id:match[2],head_sha:run.head_sha};
+ const retained=await records.read({scope,api,token,name:'helio-platform-plan',request});
+ const other=c.resumePlan(retained,roots,{...scope,run_attempt:run.run_attempt,job_workflow_ref:workflow,job_workflow_sha:plan.template.workflow_sha},{application_id:plan.application_id});
+ const otherTarget=other.targets.find(t=>t.id===target.id);
+ if(c.canonical(other.template)!==c.canonical(plan.template)||otherTarget?.target_key!==target.target_key||otherTarget?.name!==target.name)fail('current_state_changed');
+ if((await records.intents({scope,api,token,target:target.id,request})).length)fail('current_state_changed');
+ checkJob(await request(`${base}/actions/jobs/${match[3]}`,token));
+ const after=await request(`${base}/actions/runs/${match[2]}`,token);
+ if(after.run_attempt!==run.run_attempt||after.status==='completed')fail('current_state_changed');
+ return true;
+}
 async function verifySourceNow(plan,record,identity,roots,api,token,request=jsonRequest,currentExecution=null){
  const source=record.source;if(!source?.plan||!source?.build||!source?.evidence)fail('redeploy_source_missing');
  const base=`${api}/repos/${plan.repository}`;
@@ -163,7 +190,8 @@ async function verifySourceNow(plan,record,identity,roots,api,token,request=json
  const sourceJob=await request(`${base}/actions/jobs/${evidence.job_id}`,token);
  const rebuilt=await buildOnce(plan,null,null,{sourcePlan:source.plan,sourceBuild:source.build,sourceRun,sourceEvidence:[evidence],sourceDeployment,sourceJob,roots});
  if(c.canonical(rebuilt)!==c.canonical(record))fail('redeploy_source_changed');
- await recovery.current(request,base,token,sourceDeployment,currentExecution);
+ await recovery.current(request,base,token,sourceDeployment,currentExecution,
+   currentExecution?d=>verifyQueuedEnvelope(plan,identity,roots,api,token,d,request):null);
  // Read again after the evidence reads, so an intervening rerun fails closed.
  const after=await request(`${base}/actions/runs/${plan.source_run_id}`,token);
  if(after.run_attempt!==sourceRun.run_attempt||after.status!=='completed')fail('redeploy_source_changed');
@@ -369,4 +397,4 @@ async function cli(){
  fail('command');
 }
 if(require.main===module)cli().catch(error=>{const code=/^platform_[a-zA-Z0-9_]+$/.test(error.message)?error.message:'platform_runtime_failed';process.stderr.write(`${code}\n`);process.exitCode=1;});
-module.exports={bootstrap,buildOnce,verifyToken,jsonRequest,artifactID,assertUnsent,verifyProtection,verifyApproval,withTargetLock,validateSource,verifySourceNow,recoverLock,executionEnvelope,restoreRetained,cli};
+module.exports={bootstrap,buildOnce,verifyToken,jsonRequest,artifactID,assertUnsent,verifyProtection,verifyApproval,withTargetLock,validateSource,verifySourceNow,verifyQueuedEnvelope,recoverLock,executionEnvelope,restoreRetained,cli};
