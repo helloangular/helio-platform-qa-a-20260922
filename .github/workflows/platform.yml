@@ -52,6 +52,11 @@
   "jobs" : {
     "plan" : {
       "runs-on" : "ubuntu-latest",
+      "permissions" : {
+        "contents" : "write",
+        "actions" : "read",
+        "id-token" : "write"
+      },
       "outputs" : {
         "plan_digest" : "${{ steps.plan.outputs.plan_digest }}",
         "purpose" : "${{ steps.plan.outputs.purpose }}",
@@ -67,7 +72,7 @@
         "uses" : "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
         "with" : {
           "repository" : "helloangular/helio-platform-qa-a-20260922",
-          "ref" : "47f181142f6c4b2f002be42b91122f18fb720b0f",
+          "ref" : "04984325fc58a30eb4b4f960283ff0408b4df393",
           "path" : ".helio-runtime",
           "token" : "${{ secrets.platform_read_token }}",
           "persist-credentials" : false
@@ -81,14 +86,14 @@
       }, {
         "id" : "load_plan",
         "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "if" : "${{ steps.probe.outputs.plan_id != '' }}",
         "with" : {
           "artifact-ids" : "${{ steps.probe.outputs.plan_id }}",
           "run-id" : "${{ github.run_id }}",
           "github-token" : "${{ github.token }}",
           "merge-multiple" : true,
           "path" : "${{ env.HELIO_STATE_DIR }}"
-        },
-        "if" : "${{ steps.probe.outputs.plan_id != '' }}"
+        }
       }, {
         "id" : "plan",
         "run" : "node .helio-runtime/runtime.cjs plan"
@@ -107,13 +112,18 @@
     },
     "build" : {
       "runs-on" : "ubuntu-latest",
+      "permissions" : {
+        "contents" : "write",
+        "actions" : "read",
+        "id-token" : "write"
+      },
       "needs" : [ "plan" ],
       "steps" : [ {
         "id" : "runtime",
         "uses" : "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
         "with" : {
           "repository" : "helloangular/helio-platform-qa-a-20260922",
-          "ref" : "47f181142f6c4b2f002be42b91122f18fb720b0f",
+          "ref" : "04984325fc58a30eb4b4f960283ff0408b4df393",
           "path" : ".helio-runtime",
           "token" : "${{ secrets.platform_read_token }}",
           "persist-credentials" : false
@@ -135,6 +145,7 @@
       }, {
         "id" : "load_plan",
         "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "if" : "${{ steps.probe.outputs.plan_id != '' }}",
         "with" : {
           "artifact-ids" : "${{ steps.probe.outputs.plan_id }}",
           "run-id" : "${{ github.run_id }}",
@@ -145,14 +156,14 @@
       }, {
         "id" : "load_build",
         "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "if" : "${{ steps.probe.outputs.build_id != '' }}",
         "with" : {
           "artifact-ids" : "${{ steps.probe.outputs.build_id }}",
           "run-id" : "${{ github.run_id }}",
           "github-token" : "${{ github.token }}",
           "merge-multiple" : true,
           "path" : "${{ env.HELIO_STATE_DIR }}"
-        },
-        "if" : "${{ steps.probe.outputs.build_id != '' }}"
+        }
       }, {
         "id" : "source_probe",
         "run" : "node .helio-runtime/runtime.cjs source-probe",
@@ -160,36 +171,36 @@
       }, {
         "id" : "source_plan",
         "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "if" : "${{ needs.plan.outputs.purpose != 'forward' && steps.source_probe.outputs.plan_id != '' }}",
         "with" : {
           "artifact-ids" : "${{ steps.source_probe.outputs.plan_id }}",
           "run-id" : "${{ steps.source_probe.outputs.run_id }}",
           "github-token" : "${{ github.token }}",
           "merge-multiple" : true,
           "path" : "${{ env.HELIO_STATE_DIR }}/source"
-        },
-        "if" : "${{ needs.plan.outputs.purpose != 'forward' }}"
+        }
       }, {
         "id" : "source_build",
         "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "if" : "${{ needs.plan.outputs.purpose != 'forward' && steps.source_probe.outputs.build_id != '' }}",
         "with" : {
           "artifact-ids" : "${{ steps.source_probe.outputs.build_id }}",
           "run-id" : "${{ steps.source_probe.outputs.run_id }}",
           "github-token" : "${{ github.token }}",
           "merge-multiple" : true,
           "path" : "${{ env.HELIO_STATE_DIR }}/source"
-        },
-        "if" : "${{ needs.plan.outputs.purpose != 'forward' }}"
+        }
       }, {
         "id" : "source_evidence",
         "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "if" : "${{ needs.plan.outputs.purpose != 'forward' && steps.source_probe.outputs.evidence_id != '' }}",
         "with" : {
           "artifact-ids" : "${{ steps.source_probe.outputs.evidence_id }}",
           "run-id" : "${{ steps.source_probe.outputs.run_id }}",
           "github-token" : "${{ github.token }}",
           "merge-multiple" : true,
           "path" : "${{ env.HELIO_STATE_DIR }}/source"
-        },
-        "if" : "${{ needs.plan.outputs.purpose != 'forward' }}"
+        }
       }, {
         "id" : "build",
         "run" : "node .helio-runtime/runtime.cjs build"
@@ -225,7 +236,7 @@
         "uses" : "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
         "with" : {
           "repository" : "helloangular/helio-platform-qa-a-20260922",
-          "ref" : "47f181142f6c4b2f002be42b91122f18fb720b0f",
+          "ref" : "04984325fc58a30eb4b4f960283ff0408b4df393",
           "path" : ".helio-runtime",
           "token" : "${{ secrets.platform_read_token }}",
           "persist-credentials" : false
@@ -247,6 +258,7 @@
       }, {
         "id" : "load_plan",
         "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "if" : "${{ steps.probe.outputs.plan_id != '' }}",
         "with" : {
           "artifact-ids" : "${{ steps.probe.outputs.plan_id }}",
           "run-id" : "${{ github.run_id }}",
@@ -257,6 +269,7 @@
       }, {
         "id" : "load_build",
         "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "if" : "${{ steps.probe.outputs.build_id != '' }}",
         "with" : {
           "artifact-ids" : "${{ steps.probe.outputs.build_id }}",
           "run-id" : "${{ github.run_id }}",
@@ -267,14 +280,14 @@
       }, {
         "id" : "load_previous_intent",
         "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "if" : "${{ steps.probe.outputs.prior_intent_id != '' }}",
         "with" : {
           "artifact-ids" : "${{ steps.probe.outputs.prior_intent_id }}",
           "run-id" : "${{ github.run_id }}",
           "github-token" : "${{ github.token }}",
           "merge-multiple" : true,
           "path" : "${{ env.HELIO_STATE_DIR }}/previous"
-        },
-        "if" : "${{ steps.probe.outputs.prior_intent_id != '' }}"
+        }
       }, {
         "id" : "prepare",
         "run" : "node .helio-runtime/runtime.cjs prepare"
@@ -339,7 +352,7 @@
         "uses" : "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
         "with" : {
           "repository" : "helloangular/helio-platform-qa-a-20260922",
-          "ref" : "47f181142f6c4b2f002be42b91122f18fb720b0f",
+          "ref" : "04984325fc58a30eb4b4f960283ff0408b4df393",
           "path" : ".helio-runtime",
           "token" : "${{ secrets.platform_read_token }}",
           "persist-credentials" : false
@@ -361,6 +374,7 @@
       }, {
         "id" : "load_plan",
         "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "if" : "${{ steps.probe.outputs.plan_id != '' }}",
         "with" : {
           "artifact-ids" : "${{ steps.probe.outputs.plan_id }}",
           "run-id" : "${{ github.run_id }}",
@@ -371,6 +385,7 @@
       }, {
         "id" : "load_build",
         "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "if" : "${{ steps.probe.outputs.build_id != '' }}",
         "with" : {
           "artifact-ids" : "${{ steps.probe.outputs.build_id }}",
           "run-id" : "${{ github.run_id }}",
@@ -381,14 +396,14 @@
       }, {
         "id" : "load_previous_intent",
         "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "if" : "${{ steps.probe.outputs.prior_intent_id != '' }}",
         "with" : {
           "artifact-ids" : "${{ steps.probe.outputs.prior_intent_id }}",
           "run-id" : "${{ github.run_id }}",
           "github-token" : "${{ github.token }}",
           "merge-multiple" : true,
           "path" : "${{ env.HELIO_STATE_DIR }}/previous"
-        },
-        "if" : "${{ steps.probe.outputs.prior_intent_id != '' }}"
+        }
       }, {
         "id" : "prepare",
         "run" : "node .helio-runtime/runtime.cjs prepare"
@@ -453,7 +468,7 @@
         "uses" : "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
         "with" : {
           "repository" : "helloangular/helio-platform-qa-a-20260922",
-          "ref" : "47f181142f6c4b2f002be42b91122f18fb720b0f",
+          "ref" : "04984325fc58a30eb4b4f960283ff0408b4df393",
           "path" : ".helio-runtime",
           "token" : "${{ secrets.platform_read_token }}",
           "persist-credentials" : false
@@ -475,6 +490,7 @@
       }, {
         "id" : "load_plan",
         "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "if" : "${{ steps.probe.outputs.plan_id != '' }}",
         "with" : {
           "artifact-ids" : "${{ steps.probe.outputs.plan_id }}",
           "run-id" : "${{ github.run_id }}",
@@ -485,6 +501,7 @@
       }, {
         "id" : "load_build",
         "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "if" : "${{ steps.probe.outputs.build_id != '' }}",
         "with" : {
           "artifact-ids" : "${{ steps.probe.outputs.build_id }}",
           "run-id" : "${{ github.run_id }}",
@@ -495,14 +512,14 @@
       }, {
         "id" : "load_previous_intent",
         "uses" : "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "if" : "${{ steps.probe.outputs.prior_intent_id != '' }}",
         "with" : {
           "artifact-ids" : "${{ steps.probe.outputs.prior_intent_id }}",
           "run-id" : "${{ github.run_id }}",
           "github-token" : "${{ github.token }}",
           "merge-multiple" : true,
           "path" : "${{ env.HELIO_STATE_DIR }}/previous"
-        },
-        "if" : "${{ steps.probe.outputs.prior_intent_id != '' }}"
+        }
       }, {
         "id" : "prepare",
         "run" : "node .helio-runtime/runtime.cjs prepare"
