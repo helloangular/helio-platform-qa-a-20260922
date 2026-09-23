@@ -38,8 +38,9 @@ function validateConfiguration(c) {
   unique(c.templates,t=>t.id,'template'); unique(c.profiles,p=>`${p.id}/${p.version}`,'profile');
   unique(c.subscriptions,s=>s.repository_id,'subscription_repository'); unique(c.subscriptions,s=>s.application_id,'subscription_application');
   for(const t of c.templates) {
-    only(t,['id','repository','workflow','workflow_sha','runtime_sha','adapter_ids'],'template');
+    only(t,['id','repository','workflow','workflow_sha','runtime_sha','adapter_ids','gate_proof_format'],'template');
     if(!id(t.id)||!repo(t.repository)||!/^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/.test(t.workflow)||!sha(t.workflow_sha)||!sha(t.runtime_sha)) fail('template_invalid');
+    if(t.gate_proof_format!==undefined&&!['v1','compact_v2'].includes(t.gate_proof_format))fail('template_invalid');
     bounded(t.adapter_ids,50,'adapters'); if(!t.adapter_ids.every(id)) fail('adapter_invalid');
   }
   for(const p of c.profiles) {
